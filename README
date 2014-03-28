@@ -1,0 +1,59 @@
+This project is based on the reranking task at 
+https://github.com/callison-burch/dreamt.git,
+with the main difference being that nbest lists have been shuffled before use.
+
+I used the stochastic gradient descent classifier from the following source:
+Scikit-learn: Machine Learning in Python, Pedregosa et al., JMLR 12, pp. 2825-2830, 2011.
+
+Programs for pre-processing:
+
+-calc-bleu: Use this to calculate smoothed bleu scores for the training sample.
+ This is done to speed up learning during model development (a file is saved by calc-bleu
+ and then read by learn).
+
+ (all the following models take in a type (-t) for setting whether to process test or train data)
+
+-source-model: This file takes in a type (-t), which is test or train. It then 
+ extracts features from the nbest list and the origin language. Currently, it
+ calculates the absolute fractional difference in length between each translation and
+ the associated source.
+
+-language-model: Extracts features from a given language file (list of target language
+ sentences). Currently, calculates ngram probabilities for ngrams of length 1, 2, 3, 4.
+ Within file, you can select cutoffs for each ngram.
+
+-pool-model: Calculates smoothed BLEU and its components, treating each translation as
+ a 'reference' and the nbest translations as the system. In other word, it is a measure
+ of how well the system would have performed if the current sentence was the reference.
+
+-sentence-model: Calculates features based only on this sentence; here, counts the 
+ percentage of words less than 2 chars long, 3 chars long and 4 chars long.
+
+The following programs are for actual reranking:
+
+-learn: reads N-best lists and, using human translations of the same 
+ sentences as supervision, learns a weight vector for the features appearing
+ in the N-best list. Saves a pickle file to (-p), which is required for scaling
+ the paramaters in rerank.
+
+-rerank: reads N-best lists and for each one chooses the English sentence
+ with the highest score according the dot product of its feature values
+ and a weight vector. Requires the pickle file saved by learn to work.
+
+bleu.py was left unchanged from the original.
+
+In the data directory, I have added my final nbest lists with features.
+The features are, in order:
+- Original 6 features
+- Smoothed BLEU (treating current sentence as reference for nbest pool)
+- 5 components of BLEU (brevity penalty and 4 ngram-lengths)
+- Output of source-model (difference in source/translation length)
+- Output of language-model (ngram scores, in order 1,2,3,4)
+- Output of sentence-model (% words < 2, 3, 4 chars long)
+
+Sample usage:
+
+./learn -p picklefile
+./rerank -p picklefile
+
+
