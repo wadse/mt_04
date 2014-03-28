@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+import itertools
+import math
+import optparse
+import random
+import sys
+import glob
+import math
+from collections import defaultdict
+
+optparser = optparse.OptionParser()
+optparser.add_option("-e", "--english", dest="english", default="data/train.en", help="english files")
+optparser.add_option("-t", "--type", dest="type", default="train", help="test/train")
+(opts,_) = optparser.parse_args()
+
+inputname = 'data/' + opts.type + '.base'
+featuresname = 'data/' + opts.type + '.langauge_features'
+
+def ngrams(x, n):
+    return [tuple(x[i:i+n]) for i in xrange(len(x) + 1 - n)]
+
+def gen_scores(gramlength, toplen):
+    orig_count = defaultdict(int)
+ 
+    for filename in glob.glob(opts.english):
+        ptr = open(filename)
+        for line in ptr:
+            for word in ngrams(line.split(), gramlength):
+                orig_count[word] += 1
+
+    sorted_keys = sorted(orig_count.keys(), key= lambda k:-orig_count[k])
+
+    count = {}
+    for k in sorted_keys[:toplen]:
+        count[k] = orig_count[k]
+
+    n = float(sum(count.values()))
+    smoothing_factor = 1.0 / math.sqrt(n)
+    logdenom = math.log(n + len(count) * smoothing_factor)
+    logprob = defaultdict(lambda: math.log(smoothing_factor)-logdenom)
+    for key in count:
+        lognumerator = math.log(count[key] + smoothing_factor) 
+        logprob[key] = lognumerator - logdenom
+
+    def score_sentence(sentence, senlength):
+        return 1.0 / senlength * sum(logprob[w] for w in sentence)
+
+    scores = []
+    for line in open(inputname):
+        (i, sentence, features) = line.strip().split("|||")
+        uni = sentence.split()
+        scores.append(score_sentence(ngrams(uni, gramlength), len(uni)))
+
+    return scores
+
+basic_feat = zip(gen_scores(1, 1000), gen_scores(2, 100), gen_scores(3, 100), gen_scores(4, 10))
+
+featuresfile = open(featuresname, 'w')
+for feats in basic_feat:
+    line = ' '.join([str(round(f, 3)) for f in feats]) + '\n'
+    featuresfile.write(line)
+featuresfile.close()    

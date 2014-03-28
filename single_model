@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+import itertools
+import math
+import optparse
+import random
+import sys
+import bleu
+import math
+from collections import namedtuple, Counter
+
+optparser = optparse.OptionParser()
+optparser.add_option("-t", "--type", dest="type", default="train", help="test/train")
+(opts,_) = optparser.parse_args()
+
+inputname = 'data/' + opts.type + '.final'
+featuresname = 'data/' + opts.type + '.single_features'
+
+def sentence_features(sentence):
+    l = float(len(sentence))
+    two = sum(1 for w in sentence if len(w) < 2) / l
+    three = sum(1 for w in sentence if len(w) < 3) / l
+    four = sum(1 for w in sentence if len(w) < 4) / l
+    features = [two, three, four]
+    return features
+
+sys.stderr.write("Reading N-best lists...")
+featuresfile = open(featuresname, 'w')
+for n, line in enumerate(open(inputname)):
+    (i, sentence, features) = line.strip().split("|||")
+    i = int(i)
+    sentence = sentence.strip().split()
+    features = sentence_features(sentence)
+    featuresline = ' '.join([str(round(f, 3)) for f in features]) + '\n'		
+    featuresfile.write(featuresline) 
+    if n % 2000 == 0:
+        sys.stderr.write(".")
+sys.stderr.write("\n")
+featuresfile.close()
+
+
+

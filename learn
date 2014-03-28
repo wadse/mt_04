@@ -1,0 +1,109 @@
+#!/usr/bin/env python
+import itertools
+import math
+import optparse
+import random
+import sys
+import bleu
+import sklearn
+import numpy
+import pickle
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import SGDClassifier
+from sklearn import grid_search
+from collections import namedtuple
+
+# Simplified implementation of Pairwise Ranking Optimization (PRO) due to
+# Hopkins & May (2011): http://aclweb.org/anthology-new/D/D11/D11-1125.pdf
+
+translation_candidate = namedtuple("candidate", "features, smoothed_bleu")
+
+optparser = optparse.OptionParser()
+
+optparser.add_option("-r", "--reference", dest="reference", default="data/train.en",
+                     help="English reference sentences")
+optparser.add_option("-n", "--nbest", dest="nbest", default="data/train.final",
+                     help="N-best lists")
+optparser.add_option("-m", "--num-training-sentences", dest="m", default=sys.maxint, type="int",
+                     help="Number of training sentences (default=all)")
+optparser.add_option("-t", "--tau", dest="tau", default=5000, type="int",
+                     help="PRO samples per input sentence (tau, default=5000)")
+optparser.add_option("-x", "--xi", dest="xi", default=50, type="int",
+                     help="PRO training instances per input sentence (xi, default=50)")
+optparser.add_option("-e", "--eta", dest="eta", default=0.1, type="float",
+                     help="Perceptron learning rate (eta, default=0.1)")
+optparser.add_option("-a", "--alpha", dest="alpha", default=0.05, type="float",
+                     help="Sampler acceptance cutoff (alpha, default=0.05)")
+optparser.add_option("-i", "--epochs", dest="epochs", default=5, type="int",
+                     help="Perceptron epochs (default=5)")
+optparser.add_option("-s", "--random-seed", dest="seed", default="0", type="string",
+                     help="Random number seed (default='0')")
+optparser.add_option("-p", "--pickle_file", dest="pickle", default="sgd_trainer.pickle",
+                     help="pickle file created by learn, with scaler for features")
+optparser.add_option("-b", "--bleu", dest="actual", default="data/train.actual",
+                     help="file with the actual bleu scores; provided to speed up process")
+(opts,_) = optparser.parse_args()
+
+ref = [line.strip().split() for line in open(opts.reference)][:opts.m]
+
+sys.stderr.write("Reading N-best lists...")
+nbests = [[] for _ in ref]
+for n, (line, bleu) in enumerate(zip(open(opts.nbest), open('data/train.actual'))):
+  (i, sentence, features) = line.strip().split("|||")
+  (i, features) = (int(i), [float(h) for h in features.strip().split()])
+  features = features[:10] + features[12:16] + features[18:]
+  if i >= len(ref):
+    break
+  tc = translation_candidate(features, float(bleu))
+  nbests[i].append(tc)
+  if n % 2000 == 0:
+    sys.stderr.write(".")
+sys.stderr.write("\n")
+
+w = [0.0 for _ in xrange(len(nbests[0][0].features))]
+random.seed(opts.seed)
+
+X = []
+Y = []
+for i in xrange(opts.epochs):
+  sys.stderr.write("Epoch %d..." % i)
+  (observations, errors) = (0, 0.0)
+  for nbest in nbests:
+    def V():
+      for _ in xrange(opts.tau):
+        c1 = random.choice(nbest)
+        c2 = random.choice(nbest)
+        if c1 != c2 and math.fabs(c1.smoothed_bleu - c2.smoothed_bleu) > opts.alpha:
+          yield (c1, c2) if c1.smoothed_bleu > c2.smoothed_bleu else (c2, c1)
+    # Figure 4 sampling algorithm      
+    for c1, c2 in sorted(V(), key=lambda (c1,c2): c2.smoothed_bleu-c1.smoothed_bleu)[:opts.xi]:
+      x = [c1j-c2j for c1j,c2j in zip(c1.features, c2.features)]
+      X.extend([x, [-1.0 * z for z in x]])
+      if c1.smoothed_bleu > c2.smoothed_bleu: Y.extend([1, -1])
+      else: Y.extend([-1, 1])
+      observations += 1
+      if observations % 2000 == 0:
+        sys.stderr.write(".")
+  sys.stderr.write('\n')        
+
+# got good advice from http://scikit-learn.org/stable/modules/sgd.html
+
+scaler = StandardScaler()
+sys.stderr.write('Training and fitting scaler...')
+scaler.fit(X)
+X = scaler.transform(X)
+sys.stderr.write('Done!\n')
+
+sgd = SGDClassifier(alpha=0.00001, loss="log", penalty="l1", shuffle=True, n_iter = 1000)
+
+sys.stderr.write('Training classifier...')
+sgd.fit(X, Y)
+sys.stderr.write('Done!\n')
+c =  sgd.coef_
+w = c[0]
+
+ptr = open(opts.pickle, 'w')
+pickle.dump((scaler, sgd), ptr)
+ptr.close()
+
+print "\n".join([str(weight) for weight in w])

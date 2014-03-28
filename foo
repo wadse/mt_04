@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+
+import optparse
+
+optparser = optparse.OptionParser()
+optparser.add_option("-a", "--first", dest="a")
+optparser.add_option("-b", "--second", dest="b")
+optparser.add_option("-o", "--out", dest="o")
+(opts,_) = optparser.parse_args()
+
+a = open(opts.a)
+b = open(opts.b)
+o = open(opts.o, 'w')
+for (aline, bline) in zip(a,b):
+    newline = aline.strip() + ' ' + bline.strip() + '\n'
+    o.write(newline)
+a.close()
+b.close()
+o.close()    

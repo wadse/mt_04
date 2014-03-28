@@ -1,0 +1,80 @@
+#!/usr/bin/env python
+import itertools
+import math
+import optparse
+import random
+import sys
+import bleu
+import math
+from collections import namedtuple, Counter
+
+# Options Parser
+optparser = optparse.OptionParser()
+optparser.add_option("-t", "--type", dest="type", default="train", help="test/train")
+(opts,_) = optparser.parse_args()
+
+sourcename = 'data/' + opts.type + '.fr'
+inputname = 'data/' + opts.type + '.nbest.shuffled'
+featuresname = 'data/' + opts.type + '.prelim'
+
+def bleu_stats(s_tc, r_tc):
+  yield len(s_tc.sentence)
+  yield len(r_tc.sentence)
+  for n in xrange(1,5):
+    yield max([sum((s_tc.ngrams[n-1] & r_tc.ngrams[n-1]).values()), 0])
+    yield max([len(s_tc.sentence)+1-n, 0])
+
+def rev_bleu(nbest, r_tc):
+    stats = [0 for _ in range(10)]
+    for s_tc in nbest:
+        stats = [curr + new for curr, new in zip(stats, bleu_stats(s_tc, r_tc))]
+    # 'ref' length over nbest length
+    mystats = [float(stats[1]) / stats[0]]
+    for i in range(1, 5):
+        num = float(stats[i+1])
+        denom = float(stats[i+2])
+        if denom == 0: mystats.append(0)
+        else: mystats.append(num/denom)
+    return [bleu.smoothed_bleu(stats)] + mystats
+
+src = [line.strip().split() for line in open(sourcename)]
+
+translation_candidate = namedtuple("candidate", "i, src, sentence, features")
+
+sys.stderr.write("Reading N-best lists...")
+nbests = [[] for _ in src]
+for n, line in enumerate(open(inputname)):
+    (i, sentence, features) = line.strip().split("|||")
+    (i, sentence, features) = (int(i), sentence.strip().split(), [])
+    tc = translation_candidate(i, src[i], sentence, features)
+    nbests[i].append(tc)
+    if n % 2000 == 0:
+        sys.stderr.write(".")
+sys.stderr.write("\n")
+
+tc_gram_tup = namedtuple("tc_gram_tup", "sentence, ngrams")
+
+print len(nbests)
+
+for j, nbest in enumerate(nbests):
+    nbest_gram = []
+    for tc in nbest:
+        ngrams = []
+        for n in xrange(1, 5):
+            ngrams.append(Counter([tuple(tc.sentence[i:i+n])
+                                   for i in xrange(len(tc.sentence)+1-n)]))
+        nbest_gram.append(tc_gram_tup(tc.sentence, ngrams))
+    for (tc, tc_gram) in zip(nbest, nbest_gram):
+        tc.features.extend(rev_bleu(nbest_gram, tc_gram))
+    sys.stderr.write(str(j) + '\n')
+
+featuresfile = open(featuresname, 'w')
+for nbest in nbests:
+    for tc in nbest:
+        featuresline = ' '.join([str(round(f, 3)) for f in tc.features]) + '\n'
+        featuresfile.write(featuresline)        
+    sys.stderr.write(".")
+sys.stderr.write("\n")        
+featuresfile.close()
+
+

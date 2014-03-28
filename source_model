@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+import itertools
+import math
+import optparse
+import random
+import sys
+import bleu
+import math
+from collections import namedtuple, Counter
+
+optparser = optparse.OptionParser()
+optparser.add_option("-t", "--type", dest="type", default="train", help="test/train")
+(opts,_) = optparser.parse_args()
+
+sourcename = 'data/' + opts.type + '.fr'
+inputname = 'data/' + opts.type + '.nbest.shuffled'
+featuresname = 'data/' + opts.type + '.source_features'
+
+src = [line.strip().split() for line in open(sourcename)]
+
+def source_features(source, sentence):
+    features = []
+    features.append(abs(float(len(source)) - float(len(sentence))) / float(len(source)))
+    return features
+
+sys.stderr.write("Reading N-best lists...")
+featuresfile = open(featuresname, 'w')
+for n, line in enumerate(open(inputname)):
+    (i, sentence, features) = line.strip().split("|||")
+    i = int(i)
+    source = src[i]
+    sentence = sentence.strip().split()
+    features = source_features(source, sentence)
+    featuresline = ' '.join([str(round(f, 3)) for f in features]) + '\n'		
+    featuresfile.write(featuresline) 
+    if n % 2000 == 0:
+        sys.stderr.write(".")
+sys.stderr.write("\n")
+featuresfile.close()
+
+
+
